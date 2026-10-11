@@ -4133,7 +4133,9 @@ class AmdTelemetry(unittest.TestCase):
                          (2, "simd_count 128\ngfx_target_version 120001\ndrm_render_minor 128\n")):
             (nodes / str(n)).mkdir(parents=True)
             (nodes / str(n) / "properties").write_text(props)
-        for minor, used, busy, temp, power in ((129, 2 << 30, 37, 51000, 85000000), (128, 6 << 30, 99, 64000, None)):
+        # energy1_input is microjoules: 3.6e12 uJ = 1000 Wh, 1.8e12 = 500 Wh
+        for minor, used, busy, temp, power, energy in ((129, 2 << 30, 37, 51000, 85000000, 3_600_000_000_000),
+                                                       (128, 6 << 30, 99, 64000, None, 1_800_000_000_000)):
             dev = Path(d) / f"class/drm/renderD{minor}/device"
             hw = dev / "hwmon" / "hwmon4"
             hw.mkdir(parents=True)
@@ -4147,6 +4149,7 @@ class AmdTelemetry(unittest.TestCase):
             else:
                 (hw / "power1_input").write_text("120000000\n")
             (hw / "power1_cap").write_text("300000000\n")
+            (hw / "energy1_input").write_text(f"{energy}\n")
 
     def test_pcie_link_is_the_narrowest_slowest_hop(self):
         """#1733: the link is the slowest/narrowest hop between the root port and the card; the bottleneck is only
@@ -4187,7 +4190,8 @@ class AmdTelemetry(unittest.TestCase):
                 self.assertTrue(g.ok())
                 self.assertEqual(g.name(), "AMD Radeon AI PRO R9700")
                 self.assertEqual(g.read(), {"util": 37, "mem_used": 2 << 30, "mem_total": 32 << 30, "temp": 51.0,
-                                            "power": 85.0, "power_limit": 300.0, "pcie_gen": None,
+                                            "power": 85.0, "power_limit": 300.0, "energy_wh": 1000.0,
+                                            "pcie_gen": None,
                                             "pcie_gen_max": None, "pcie_own_gen": None, "pcie_width": None,
                                             "pcie_path": "0/0"})    # #1733: no PCIe files in this fake tree
                 r = telemetry.gpu_reader(1, amd=True).read()
@@ -4199,6 +4203,8 @@ class AmdTelemetry(unittest.TestCase):
                 self.assertEqual(t.static["gpu_name"], "AMD Radeon AI PRO R9700 + AMD Radeon AI PRO R9700")
                 self.assertEqual((s["gpu_mem_used"], s["gpu_util"], s["gpu_temp"], s["gpu_power"]),
                                  (8 << 30, 68.0, 64.0, 205.0))
+                self.assertEqual((s["gpu_energy_wh"], [g["energy_wh"] for g in s["gpus"]]),
+                                 (1500.0, [1000.0, 500.0]))      # Wh: each card's own, and their total
         with tempfile.TemporaryDirectory() as d:                    # no amdgpu: nothing, and nothing breaks
             with mock.patch.object(telemetry, "SYSFS", d):
                 self.assertFalse(telemetry.gpu_reader(0, amd=True).ok())
